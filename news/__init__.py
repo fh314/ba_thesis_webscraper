@@ -1,0 +1,1 @@
+from .newsoutlet import NewsOutlet
