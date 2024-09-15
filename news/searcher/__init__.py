@@ -6,7 +6,6 @@ from .spiegel_searcher import SpiegelSearcher
 from .sz_searcher import SZSearcher
 from .taz_searcher import TazSearcher
 from .welt_searcher import WeltSearcher
-from .faz_searcher import  FAZSearcher
+from .faz_searcher import FAZSearcher
 from .zeit_searcher import ZeitSearcher
-
-
+from .tagesspiegel_searcher import TagesspiegelSearcher

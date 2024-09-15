@@ -1,0 +1,6 @@
+Webscraper:
+    EXPORT_PATH: "export/"
+  Database:
+    POSTGRES_USER: ""
+    POSTGRES_PASSWORD: ""
+    POSTGRES_DB: ""

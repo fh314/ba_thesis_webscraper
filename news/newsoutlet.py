@@ -5,40 +5,49 @@ from news.searcher import (
     NporgSearcher, RNDSearcher,
     SpiegelSearcher, SZSearcher,
     TazSearcher, WeltSearcher,
-    FAZSearcher, ZeitSearcher
+    FAZSearcher, ZeitSearcher,
+    TagesspiegelSearcher
 )
 
 
 class NewsOutlet(Enum):
-    SZ = ("Süddeutsche Zeitung", "", "SZ", "#66c2a5", SZSearcher())
-    WELT = ("Die Welt", "", "Welt", "#004488", WeltSearcher())
-    RND = ("Redaktionsnetzwerk Deutschland", "", "RND", "#8a2be2", RNDSearcher())
-    HEISE = ("Heise", "", "Heise", "#959595", HeiseSearcher())
-    NP_ORG = ("netzpolitik.org", "", "np_org", "#00a1e0", NporgSearcher())
-    SPIEGEL = ("Der Spiegel", "", "Spiegel", "#ff7300", SpiegelSearcher())
-    TAZ = ("Die Tageszeitung (taz)", "", "taz", "#d50d2e", TazSearcher())
-    GOLEM = ("golem.de", "", "golem", "#7fb71e", GolemSearcher())
-    FAZ = ("Frakfurter Allgemeine Zeitung", "", "FAZ", "#33363b", FAZSearcher())
-    Zeit = ("Zeit Online", "", "Zeit", "#FFC0CB", ZeitSearcher())
+    SZ = ("Süddeutsche Zeitung", "SZ", SZSearcher())
+    WELT = ("Die Welt",  "Welt", WeltSearcher())
+    RND = ("Redaktionsnetzwerk Deutschland",  "RND", RNDSearcher())
+    HEISE = ("Heise",  "Heise", HeiseSearcher())
+    NP_ORG = ("netzpolitik.org",  "np_org", NporgSearcher())
+    SPIEGEL = ("Der Spiegel",  "Spiegel", SpiegelSearcher())
+    TAZ = ("Die Tageszeitung (taz)",  "taz", TazSearcher())
+    GOLEM = ("golem.de",  "golem", GolemSearcher())
+    FAZ = ("Frakfurter Allgemeine Zeitung",  "FAZ", FAZSearcher())
+    ZEIT = ("Zeit Online",  "Zeit", ZeitSearcher())
+    TAGESSPIEGEL = ("Tagesspiegel Background",  "Tagesspiegel", TagesspiegelSearcher())
 
-    def __init__(self, name, description, abbr, color, article_searcher):
-        self._name = name
-        self._description = description
+    def __init__(self, name, abbr, article_searcher):
+        self._outlet_name = name
         self._abbr = abbr
-        self._color = color
         self._article_searcher = article_searcher
 
     @property
     def name(self):
-        return self._name
+        return self._outlet_name
 
     @property
     def abbr(self):
         return self._abbr
 
-    @property
-    def color(self):
-        return self._color
+    @classmethod
+    def from_name(cls, name):
+        for member in cls:
+            if member.name == name:
+                return member
+        raise ValueError(f"'{name}' is not a valid NewsOutlet name")
+
+    def __str__(self):
+        return self.name
 
     def fetch_search_results(self, search_term, session):
-        return self._article_searcher.fetch_articles(search_term, session, self)
+        results = []
+        for spelling in search_term.spellings:
+            results.extend(self._article_searcher.fetch_articles_for_searchterm(search_term, spelling, session, self))
+        return results

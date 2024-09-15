@@ -1,85 +1,74 @@
-import csv
-import re
+import logging
 from datetime import timedelta, datetime
 
 import requests_cache
 import yaml
-
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 from news.newsoutlet import NewsOutlet
-from utility.plotter import plot_data, prepare_data, plot_articles
+from news.newsarticle import Base as ArticleBase
+from utility.db_connector import save_articles_to_db, create_or_update_search_term
+from utility.exporter import export_articles
 
-# Cache http requests locally to improve performance and prevent getting IP-address blacklisted
-session = requests_cache.CachedSession('cache', expire_after=timedelta(hours=168))
-session.headers.update({'User-Agent': 'Temporary test-system for evaluation of research setup'})
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
+# Cache http requests locally to improve performance and prevent overloading webserver
+req_session = requests_cache.CachedSession('cache', expire_after=timedelta(hours=168))
+req_session.headers.update({'User-Agent': 'Research Project'})
+
+# Load database configuration
 config = yaml.safe_load(open('config.yml'))
 
+DATABASE_URL = (f"postgresql://{config['Webscraper']['Database']['POSTGRES_USER']}:"
+                f"\"{config['Webscraper']['Database']['POSTGRES_PASSWORD']}\"@localhost:5432/"
+                f"{config['Webscraper']['Database']['POSTGRES_DB']}?client_encoding=utf8")
 
+# Set up database connection
+engine = create_engine(DATABASE_URL)
+db_session = sessionmaker(autocommit=False, autoflush=False, bind=engine, expire_on_commit=False)
+
+
+# Create tables in database
+def init_db():
+    ArticleBase.metadata.create_all(bind=engine)
+
+
+# Filter articles to only include those from January 1, 2014, onward
 def filter_last_10years(all_articles):
     cutoff_date = datetime(2014, 1, 1)
 
-    # Filter articles to only include those from January 1, 2014, onward
     filtered_articles = [article for article in all_articles if article.date and article.date >= cutoff_date]
     return filtered_articles
 
 
-def export_articles(all_articles):
-    # Generate a timestamp for the filename
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    export_path = config["Webscraper"]["EXPORT_PATH"]
-    filename = f"export_{timestamp}.csv"  # Append timestamp to the filename
-
-    # Construct full path
-    full_export_path = f"{export_path}/{filename}"
-
-    with open(full_export_path, mode='w', newline='', encoding='utf-8') as file:
-        writer = csv.writer(file)
-        # Adding 'Search Terms' to the header
-        writer.writerow(['Title', 'URL', 'Description', 'Author', 'Date', 'News Outlet', 'Search Terms'])
-        for article in all_articles:
-            # Concatenate all search terms into a single string separated by commas
-            search_terms_str = ', '.join(article.search_terms)
-
-            # Clean and prepare each field before writing to the CSV
-            title = clean_text(article.title)
-            url = article.url  # URLs typically do not contain special whitespace or non-printable characters
-            description = clean_text(article.description)
-            author = clean_text(article.author)
-            date = article.date  # Date fields typically do not contain non-printable characters
-            news_outlet = article.news_outlet.abbr if article.news_outlet else None
-
-            # Include the concatenated search terms in the row
-            writer.writerow([title, url, description, author, date, news_outlet, search_terms_str])
-
-
-def clean_text(text):
-    """Removes special and non-printable characters, and replaces them with normal spaces."""
-    if text is not None:
-        text = re.sub(r'\s', ' ', text)  # Replace all whitespace with a normal space
-        text = re.sub(r'[^\x20-\x7EäöüÄÖÜß]', '', text)  # Preserve German characters
-    return text
-
-
+# Collect articles for a list of search terms
 def collect_articles_for_searchterms(search_terms, filter_10y):
     articles_dict = {}
     for term in search_terms:
         results = collect_articles_for_searchterm(term, filter_10y)
+
+        # Add articles to dictionary, using URL as key to prevent duplicates
         for article in results:
             if article.url in articles_dict:
                 articles_dict[article.url].add_search_term(term)
             else:
                 articles_dict[article.url] = article
 
+    logger.info(f"Collected :{len(articles_dict.values())} articles")
     return list(articles_dict.values())
 
 
+# Collect articles for a single search term
 def collect_articles_for_searchterm(search_term, filter_10y):
     collected_articles = []
+
+    # Fetch articles for each news outlet
     for news_outlet in NewsOutlet:
-        print(f"{news_outlet.abbr}: Fetching results for \"{search_term}\"")
-        a = news_outlet.fetch_search_results(search_term, session)
-        print(len(a))
+        logger.info(f"{news_outlet.abbr}: Fetching results for \"{search_term.label}\"")
+        a = news_outlet.fetch_search_results(search_term, req_session)
         collected_articles.extend(a)
 
     if filter_10y:
@@ -89,16 +78,35 @@ def collect_articles_for_searchterm(search_term, filter_10y):
 
 
 if __name__ == '__main__':
-    search_terms = ["Zitis", "Cyberagentur"]
+
+    # Initialize database
+    init_db()
+
+    search_terms_data = [
+        {"label": "Hackback", "spellings": ["Hackback", "Hackbacks"]},
+        {"label": "Gefahrenabwehr Cyberraum", "spellings": ["Gefahrenabwehr Cyberraum"]},
+        {"label": "Aktive Cyberabwehr", "spellings": ["aktive Cyberabwehr"]}
+    ]
+
+    session = db_session()
+
+    search_terms = []
+
+    # Create or update search terms in database
+    for term_data in search_terms_data:
+        search_term = create_or_update_search_term(session, term_data)
+        search_terms.append(search_term)
+
     all_articles = []
 
-    all_articles.extend(collect_articles_for_searchterms(search_terms, False))
+    # Collect articles for each search term
+    articles_for_terms = collect_articles_for_searchterms(search_terms, True)
+    all_articles.extend(articles_for_terms)
 
-    print("Collected :", len(all_articles), " articles")
-    # for article in sorted(all_articles, key=lambda news_article: news_article.date):
-    #    print(article.news_outlet.abbr + ":", article.date, article.title)
+    # Export and save articles
+    export_articles(all_articles, config)
 
+    # Save articles to database
+    save_articles_to_db(session, all_articles)
 
-    plot_articles(all_articles, search_terms)
-    export_articles(all_articles)
-    #extract_topics_from_subscriptions(all_articles)
+    session.close()

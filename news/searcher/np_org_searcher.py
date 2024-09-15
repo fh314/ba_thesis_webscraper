@@ -1,20 +1,28 @@
 from bs4 import BeautifulSoup
 from dateutil import parser
+import logging
 
-from news.newsarticle import NewsArticle
 from news.searcher.article_searcher import ArticleSearcher
+
+import html
+
+logger = logging.getLogger(__name__)
 
 
 class NporgSearcher(ArticleSearcher):
-    def fetch_articles(self, search_term, session, outlet):
+
+    def fetch_articles_for_searchterm(self, search_term, search_term_str, session, outlet):
+        from news.newsarticle import NewsArticle
         articles = []
         page = 1
 
+        # Iterate over all pages until all articles are fetched
         while True:
-            request_url = f"https://netzpolitik.org/page/{page}/?s={search_term}"
+            request_url = f"https://netzpolitik.org/page/{page}/?s={search_term_str}"
             response = session.get(request_url)
             soup = BeautifulSoup(response.content, 'html.parser')
 
+            # Check if the request was successful
             main_div = soup.find('main', id='main')
             if not main_div or not main_div.find_all('article', class_='teaser'):
                 break  # Break if no articles are found or main div is missing
@@ -24,6 +32,7 @@ class NporgSearcher(ArticleSearcher):
             # Iterate over each article tag within the main content area
             for article in main_div.find_all('article', class_='teaser'):
                 try:
+                    # Extract article information
                     headline_link = article.find('a', class_='teaser__headline-link')
                     title = headline_link.text.strip()
                     url = headline_link['href']
@@ -41,7 +50,7 @@ class NporgSearcher(ArticleSearcher):
                     articles.append(news_article)
                     current_page_articles += 1
                 except Exception as e:
-                    print(f"np.org: Exception: {e} for url: {request_url} article: \n{article}\n")
+                    logger.warning(f"np.org: Exception: {e} for url: {request_url} article: \n{article}\n")
                     continue  # Skip articles throwing excpetions
 
             if current_page_articles < 20:

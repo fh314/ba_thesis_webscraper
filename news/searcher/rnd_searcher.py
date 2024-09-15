@@ -1,17 +1,25 @@
 import json
+import html
+import re
+import logging
 
+from bs4 import BeautifulSoup
 from dateutil import parser
 
-from news.newsarticle import NewsArticle
 from news.searcher.article_searcher import ArticleSearcher
+
+logger = logging.getLogger(__name__)
 
 
 class RNDSearcher(ArticleSearcher):
-    def fetch_articles(self, search_term, session, outlet):
+
+    def fetch_articles_for_searchterm(self, search_term, search_term_str, session, outlet):
+        from news.newsarticle import NewsArticle
         base_url = "https://api.queryly.com/json.aspx"
         params = {
-            "queryly_key": "779542eeca9144e3",
-            "query": search_term,
+            # Needs to be extracted from the browser
+            "queryly_key": "",
+            "query": search_term_str,
             "endindex": 0,
             "batchsize": 99,
             "callback": "searchPage.resultcallback",
@@ -24,6 +32,7 @@ class RNDSearcher(ArticleSearcher):
 
         printedTotalResults = False
 
+        # Iterate over all pages until all articles are fetched
         while True:
             response = session.get(base_url, params=params)
             data = response.text
@@ -34,16 +43,19 @@ class RNDSearcher(ArticleSearcher):
                 json_data = json.loads(data[start:end])
                 # print(json_data)
             except Exception as e:
-                print(f"{outlet.abbr}: Exception {e} while processing {data}")
+                logger.warning(f"{outlet.abbr}: Exception {e} while processing {data}")
                 return []
 
             total_results = json_data["metadata"]["total"]
 
+            # Log the total number of results
             if not printedTotalResults:
-                print(f"RND: Found {total_results} results")
+                logger.info(f"RND: Found {total_results} results")
                 printedTotalResults = True
 
             items = json_data.get('items', [])
+
+            # Iterate over each article in the list
             for item in items:
                 new_article = NewsArticle(
                     title=item["title"],
@@ -57,6 +69,7 @@ class RNDSearcher(ArticleSearcher):
                 articles.append(new_article)
                 total_retrieved += 1
 
+            # Break if all articles have been fetched
             if total_retrieved >= total_results:
                 break
 

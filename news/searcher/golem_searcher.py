@@ -1,45 +1,32 @@
 from datetime import datetime
-
 from bs4 import BeautifulSoup
-
-from news.newsarticle import NewsArticle
 from news.searcher.article_searcher import ArticleSearcher
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class GolemSearcher(ArticleSearcher):
-    def fetch_articles(self, search_term, session, outlet):
+
+    def fetch_articles_for_searchterm(self, search_term, search_term_str, session, outlet):
+        from news.newsarticle import NewsArticle
         articles = []
         base_url = "https://suche.golem.de/search.php"
         page = 1
         total_articles_fetched = 0
 
-        # Setup cookies required by the website
+        # Setup cookies required by the website, need to be manually extracted from the browser
         cookies = {
-            'consentUUID': 'f03cce74-9470-419c-8206-34476d7c2805_31',
-            'euconsent-v2': "CP9a2YAP9a2YAAGABCENAwEsAP_gAAAAAAYgIxBFBC"
-                            "pNDGFAMHBVAJogSYAU1tARIEQAABCAAwAFAAOA4IAA"
-                            "0QECEAQAAAAAAAAAgVABAAAAAABEAACAAAAEAQBEAA"
-                            "QQgAAIAAAAAAEQQgBAAAgAAAAAEAAIAAABAwQAkBCA"
-                            "IQKEREAghIAgCAAQAIABAICAAgMACEAYAAAAAAIAAI"
-                            "BAAAIEMAIAAAEAAQAAAFhIEgACAAKgAcABBADIANAA"
-                            "iABMADeAH4AQkAhgCJAEcAJYATQAw4B9gH6ARQAjQB"
-                            "IgC5gF6AMUAbQA3AChwF5gMNAZIA1cBuYDggHJgPHA"
-                            "hDBC0ELgIchAAYBKQD-gQMHQJAAKgAcABBADIANAAi"
-                            "ABMADeAH6AQwBEgCWAE0AMMAaMA-wD9gIoAiwBIgC5"
-                            "gF6AMUAbQA3ACEAEXgJkAUOAvMBhoDJAGWANNAauA4"
-                            "sByYDxwIWgQ5HACgAEAAXACgAI4AlIB_QF0AMEAbmB"
-                            "AwhALACYAG8ARwBFACUgFzAMUAbQB44EKAIWkAAQAC"
-                            "AGCEoBwACAAOABEACZAIYAiQBHAD8ALmAYoBCACLwF"
-                            "5gMkAhCSABAAXAZYUgOgAVAA4ACCAGQAaABEACYAFI"
-                            "AP0AhgCJAGjAPwA_QCLAEiALmAYoA2gBuAEXgKHAXm"
-                            "Aw0BkgDLAHBAOTAeOBCECFoEOSgAsABQAFwAtgCOAH"
-                            "2ASkBCAC6AGCANzAgYWgBgCOAL0A8c.YAAAAAAAAAAA",
+            'consentUUID': '',
+            'euconsent-v2': '',
             'golem_consent20': 'cmp|220101'
         }
 
+        # Iterate over all pages until all articles are fetched
         while True:
             params = {
-                'q': search_term,
+                'q': search_term_str,
                 'l': 10,  # Number of results per page
                 's': 1,  # Start index (?)
                 'f_abs': 1,
@@ -47,7 +34,15 @@ class GolemSearcher(ArticleSearcher):
                 'p': page  # Current page
             }
 
+            # Fetch the page
             response = session.get(base_url, params=params, cookies=cookies)
+
+            # Check if the request was successful
+            if response.status_code != 200:
+                logger.warning(f"Failed to fetch data, status code: {response.status_code} for url: {response.url}")
+                break
+
+            # Parse the response content
             soup = BeautifulSoup(response.content, 'html.parser')
             article_list = soup.find('ol', class_='list-articles')
             if not article_list:
@@ -55,11 +50,13 @@ class GolemSearcher(ArticleSearcher):
             header = soup.find('h3', class_='head2')
             total_articles = int(header.text.split()[0]) if header else 0  # Extract total articles count from header
 
+            # Iterate over each article in the list
             if total_articles_fetched >= total_articles:
                 break  # Break if no article list is found or all articles have been fetched
 
             articles_li = article_list.find_all('li')
 
+            # Iterate over each article in the list
             for li in articles_li:
                 title_tag = li.find('h2')
                 if not title_tag:
